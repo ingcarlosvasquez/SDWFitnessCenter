@@ -1,0 +1,47 @@
+@page "/"
+@rendermode InteractiveServer
+@inject AppointmentService AppointmentService
+
+<PageTitle>SDW Fitness Center | Appointments</PageTitle>
+
+<div class="gym-dashboard">
+    <header class="hero">
+        <div class="brand-block"><div class="brand-mark">S</div><div><p class="eyebrow">SDW FITNESS CENTER</p><h1>Attendance, made easy.</h1></div></div>
+        <div class="hero-actions"><div class="date-chip"><span>Today</span><strong>@DateTime.Today.ToString("ddd, MMM d")</strong></div><button class="primary-action" @onclick="StartNew">+ New appointment</button></div>
+    </header>
+    <section class="summary-strip">
+        <div><span class="summary-label">Today's visits</span><strong>@todayAppointments.Count</strong><small>appointments scheduled</small></div>
+        <div><span class="summary-label">Checked in</span><strong>@todayAppointments.Count(a => a.CheckInTime <= DateTime.Now && a.CheckOutTime > DateTime.Now)</strong><small>currently training</small></div>
+        <div><span class="summary-label">Next arrival</span><strong>@(nextAppointment is null ? "—" : nextAppointment.CheckInTime.ToString("h:mm tt"))</strong><small>@(nextAppointment?.ClientName ?? "No more arrivals")</small></div>
+    </section>
+    <section class="workspace">
+        <div class="appointment-panel">
+            <div class="panel-heading"><div><p class="eyebrow">SCHEDULE</p><h2>Available attendee appointments</h2></div><div class="search-wrap"><span>⌕</span><input @bind="searchTerm" @bind:event="oninput" placeholder="Search attendee" /></div></div>
+            @if (appointments is null) { <p class="empty-state">Loading appointments…</p> }
+            else if (!FilteredAppointments.Any()) { <p class="empty-state">No appointments match your search.</p> }
+            else { <div class="appointment-list">@foreach (var appointment in FilteredAppointments) { <button class="appointment-row @(selectedId == appointment.Id ? "selected" : "")" @onclick="() => Select(appointment)"><img src="@appointment.AvatarUrl" alt="Placeholder profile for @appointment.ClientName" /><span class="client"><strong>@appointment.ClientName</strong><small>SDW Fitness Center</small></span><span class="when"><strong>@appointment.EventDate.ToString("ddd, MMM d")</strong><small>@appointment.AppointmentTime.ToString("h:mm tt")</small></span><span class="visit-time"><strong>@appointment.CheckInTime.ToString("h:mm tt")</strong><small>to @appointment.CheckOutTime.ToString("h:mm tt")</small></span><span class="row-arrow">→</span></button> }</div>}
+        </div>
+        <aside class="details-panel">
+            <div class="details-heading"><div><p class="eyebrow">@((isNew ? "NEW APPOINTMENT" : "APPOINTMENT DETAILS"))</p><h2>@(isNew ? "Add a gymgoer" : editModel.ClientName)</h2></div>@if (!isNew) { <button class="delete-button" @onclick="DeleteSelected">Delete</button> }</div>
+            <EditForm Model="editModel" OnValidSubmit="Save"><DataAnnotationsValidator /><div class="form-grid"><label>Client name<InputText @bind-Value="editModel.ClientName" /></label><label>Event date<InputDate @bind-Value="editModel.EventDate" /></label><label>Appointment time<InputDate @bind-Value="editModel.AppointmentTime" Type="InputDateType.Time" /></label><label>Check-in time<InputDate @bind-Value="editModel.CheckInTime" Type="InputDateType.Time" /></label><label>Check-out time<InputDate @bind-Value="editModel.CheckOutTime" Type="InputDateType.Time" /></label></div><ValidationSummary /><div class="form-actions"><button type="button" class="secondary-action" @onclick="Cancel">Cancel</button><button type="submit" class="primary-action">@(isNew ? "Create appointment" : "Save changes")</button></div></EditForm>
+            @if (!string.IsNullOrWhiteSpace(statusMessage)) { <p class="status-message">@statusMessage</p> }
+        </aside>
+    </section>
+</div>
+
+@code {
+    private List<Appointment>? appointments;
+    private Appointment editModel = NewAppointment();
+    private int? selectedId; private bool isNew = true; private string searchTerm = string.Empty; private string? statusMessage;
+    private IEnumerable<Appointment> FilteredAppointments => (appointments ?? []).Where(a => a.ClientName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)).OrderBy(a => a.EventDate).ThenBy(a => a.AppointmentTime);
+    private List<Appointment> todayAppointments => (appointments ?? []).Where(a => a.EventDate.Date == DateTime.Today).ToList();
+    private Appointment? nextAppointment => todayAppointments.Where(a => a.CheckInTime > DateTime.Now).OrderBy(a => a.CheckInTime).FirstOrDefault();
+    protected override async Task OnInitializedAsync() => await LoadAppointments();
+    private async Task LoadAppointments() => appointments = await AppointmentService.GetAllAsync();
+    private void Select(Appointment appointment) { editModel = appointment.Clone(); selectedId = appointment.Id; isNew = false; statusMessage = null; }
+    private void StartNew() { editModel = NewAppointment(); selectedId = null; isNew = true; statusMessage = null; }
+    private void Cancel() { if (selectedId is int id && appointments?.FirstOrDefault(a => a.Id == id) is { } selected) Select(selected); else StartNew(); }
+    private async Task Save() { if (editModel.CheckOutTime <= editModel.CheckInTime) { statusMessage = "Check-out must be later than check-in."; return; } await AppointmentService.SaveAsync(editModel); await LoadAppointments(); selectedId = editModel.Id; isNew = false; statusMessage = "Appointment saved."; }
+    private async Task DeleteSelected() { if (selectedId is not int id) return; await AppointmentService.DeleteAsync(id); await LoadAppointments(); StartNew(); statusMessage = "Appointment deleted."; }
+    private static Appointment NewAppointment() { var day = DateTime.Today; return new Appointment { EventDate = day, AppointmentTime = day.AddHours(9), CheckInTime = day.AddHours(9), CheckOutTime = day.AddHours(10), AvatarUrl = "https://placehold.co/96x96/e4f4ed/12372a?text=NEW" }; }
+}
